@@ -84,7 +84,7 @@ class _ModelConfigState extends State<ModelConfig> {
         repoUrl,
         options: Options(
           headers: {
-            // 'Authorization': 'token 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',
+            
             'Accept': 'application/vnd.github.v4+raw',
             'Accept-Encoding': 'identity',
           },
@@ -302,7 +302,7 @@ class _ModelConfigState extends State<ModelConfig> {
                                     recognizer: TapGestureRecognizer()
                                       ..onTap = () async {
                                         final Uri url = Uri.parse(
-                                            'https://github.com/habbas11/DMS-Flutter-App/blob/master/terms.md');
+                                            'https://github.com/habbs11/DMS-Flutter-App/blob/master/terms.md');
                                         if (!await launchUrl(url)) {
                                           throw Exception(
                                             'Could not launch $url',
