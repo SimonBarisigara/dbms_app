@@ -1,0 +1,47 @@
+name: dms_demo
+description: DMS (Driver Monitoring System) Demo App.
+
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.1.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  image_picker: ^1.1.2
+  path_provider: ^2.1.5
+  camera: ^0.11.1
+  image: ^4.0.15
+#  flutter_pytorch: ^1.0.1
+  pytorch_lite: ^4.3.2
+  
+  dio: ^5.3.3
+  shared_preferences: ^2.5.3
+  percent_indicator: ^4.2.3
+  permission_handler: ^12.0.0+1
+  audioplayers: ^6.4.0
+  url_launcher: ^6.3.1
+  archive: ^3.6.1
+  flutter_localizations:
+    sdk: flutter
+  flutter_plugin_android_lifecycle: ^2.0.28
+  
+  
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^2.0.0
+dependency_overrides:
+  win32: ^5.12.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/sound_effects/beep.mp3
+    - assets/dms.torchscript
+    - assets/dms_labels.txt
+
