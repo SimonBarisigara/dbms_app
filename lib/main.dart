@@ -84,7 +84,6 @@ class _ModelConfigState extends State<ModelConfig> {
         repoUrl,
         options: Options(
           headers: {
-            
             'Accept': 'application/vnd.github.v4+raw',
             'Accept-Encoding': 'identity',
           },
@@ -164,7 +163,6 @@ class _ModelConfigState extends State<ModelConfig> {
       '${downloadsDirectory.path}/$labelsFileName',
       options: Options(
         headers: {
-          // 'Authorization': 'token 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',
           'Accept': 'application/vnd.github.v4+raw',
           'Accept-Encoding': 'identity',
         },
