@@ -28,6 +28,9 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   flutter_plugin_android_lifecycle: ^2.0.28
+  google_maps_flutter: ^2.12.1
+  geolocator: ^14.0.0
+  google_fonts: ^6.2.1
   
   
 dev_dependencies:

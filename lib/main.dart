@@ -4,24 +4,94 @@ import 'package:dio/dio.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/animation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:percent_indicator/circular_percent_indicator.dart';
 import 'package:permission_handler/permission_handler.dart';
-// ignore: library_prefixes
-// import 'package:pytorch_lite/pytorch_lite.dart';
-
-
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
-
 import 'choose_dms_demo.dart';
 import 'classes/dms_model_info.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  runApp(const MyApp());
+}
 
-  
-  runApp(const ModelConfig());
+class MyApp extends StatelessWidget {
+  const MyApp({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primarySwatch: Colors.indigo,
+        scaffoldBackgroundColor: Colors.white,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.indigo,
+          elevation: 0,
+          centerTitle: true,
+          titleTextStyle: TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+          iconTheme: IconThemeData(color: Colors.white),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: ButtonStyle(
+            backgroundColor: WidgetStateProperty.all<Color>(Colors.indigo),
+            foregroundColor: WidgetStateProperty.all<Color>(Colors.white),
+            shape: WidgetStateProperty.all<RoundedRectangleBorder>(
+              RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            padding: WidgetStateProperty.all<EdgeInsets>(
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+          ),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ButtonStyle(
+            backgroundColor: WidgetStateProperty.all<Color>(Colors.indigo),
+            foregroundColor: WidgetStateProperty.all<Color>(Colors.white),
+            elevation: WidgetStateProperty.all<double>(4),
+            shape: WidgetStateProperty.all<RoundedRectangleBorder>(
+              RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            padding: WidgetStateProperty.all<EdgeInsets>(
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+            textStyle: WidgetStateProperty.all<TextStyle>(
+              const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Colors.grey),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Colors.grey),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Colors.indigo, width: 2),
+          ),
+        ),
+      ),
+      home: const ModelConfig(),
+    );
+  }
 }
 
 class ModelConfig extends StatefulWidget {
@@ -31,29 +101,62 @@ class ModelConfig extends StatefulWidget {
   State<ModelConfig> createState() => _ModelConfigState();
 }
 
-class _ModelConfigState extends State<ModelConfig> {
+class _ModelConfigState extends State<ModelConfig> with SingleTickerProviderStateMixin {
   bool modelDownloading = false;
   bool termsAccepted = false;
   bool askForUpdate = true;
+  bool showWelcome = true;
   late Future<DmsModelInfo> dmsModelInfoFuture;
   late DmsModelInfo dmsModelInfo;
   late Future<bool> isModelAvailable;
   late Future<bool> isUpdateAvailable;
   String downloadProgressString = '0%';
   double downloadProgressDouble = 0.0;
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
 
   @override
-  initState() {
+  void initState() {
     super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeIn,
+      ),
+    );
+    _animationController.forward();
+    
     acceptTerms();
     dmsModelInfoFuture = _initModelState();
     requestPermissions();
+    
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        setState(() {
+          showWelcome = false;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
   }
 
   void acceptTerms() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     final bool? termsAcceptedVal = prefs.getBool('termsAccepted');
-    if (termsAcceptedVal != null && termsAcceptedVal) termsAccepted = true;
+    if (termsAcceptedVal != null && termsAcceptedVal) {
+      setState(() {
+        termsAccepted = true;
+      });
+    }
   }
 
   void updateAcceptedTerms() async {
@@ -74,8 +177,6 @@ class _ModelConfigState extends State<ModelConfig> {
 
   Future<DmsModelInfo> _initModelState() async {
     try {
-      print('Entered _initModelState');
-
       const repoUrl =
           "https://raw.githubusercontent.com/habbas11/test_json/main/DMS_Version.json";
 
@@ -89,10 +190,8 @@ class _ModelConfigState extends State<ModelConfig> {
           },
         ),
       );
-      print('HERE ${response.statusCode}');
       if (response.statusCode == 200) {
         final jsonData = json.decode(response.data);
-        print(jsonData);
         dmsModelInfo = DmsModelInfo.fromJson(jsonData);
         return dmsModelInfo;
       } else {
@@ -172,161 +271,269 @@ class _ModelConfigState extends State<ModelConfig> {
         'labelsPath', '${downloadsDirectory.path}/$labelsFileName');
   }
 
+  Widget _buildWelcomeScreen() {
+    return Scaffold(
+      backgroundColor: Colors.indigo,
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            FadeTransition(
+              opacity: _fadeAnimation,
+              child: const Icon(
+                Icons.security,
+                size: 100,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 20),
+            FadeTransition(
+              opacity: _fadeAnimation,
+              child: const Text(
+                'Welcome to DMS',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            FadeTransition(
+              opacity: _fadeAnimation,
+              child: const Text(
+                'Driver Monitoring System',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.white70,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTermsDialog() {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      title: const Text(
+        'Terms and Conditions',
+        style: TextStyle(fontWeight: FontWeight.bold),
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.privacy_tip, size: 50, color: Colors.indigo),
+            const SizedBox(height: 16),
+            Text.rich(
+              TextSpan(
+                text: 'By continuing, you agree to our ',
+                style: const TextStyle(color: Colors.black87, fontSize: 16),
+                children: <TextSpan>[
+                  TextSpan(
+                    text: 'Terms of Service and Privacy Policy',
+                    style: const TextStyle(
+                      color: Colors.indigo,
+                      decoration: TextDecoration.underline,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    recognizer: TapGestureRecognizer()
+                      ..onTap = () async {
+                        final Uri url = Uri.parse(
+                            'https://github.com/SimonBarisigara/dbms_app/blob/main/lib/terms.md');
+                        if (!await launchUrl(url)) {
+                          throw Exception('Could not launch $url');
+                        }
+                      },
+                  ),
+                ],
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            Expanded(
+              child: TextButton(
+                style: TextButton.styleFrom(
+                  backgroundColor: Colors.grey[200],
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: () async {
+                  SystemNavigator.pop();
+                },
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(color: Colors.black87),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: () => setState(() {
+                  termsAccepted = true;
+                  updateAcceptedTerms();
+                }),
+                child: const Text('Agree'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDownloadDialog(String title, String message) {
+    return Dialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 16),
+            modelDownloading
+                ? Column(
+                    children: [
+                      CircularPercentIndicator(
+                        radius: 60.0,
+                        lineWidth: 10.0,
+                        percent: downloadProgressDouble,
+                        center: Text(
+                          downloadProgressString,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        progressColor: Colors.indigo,
+                        circularStrokeCap: CircularStrokeCap.round,
+                        backgroundColor: Colors.indigo.withOpacity(0.1),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Downloading model...',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ],
+                  )
+                : Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 16),
+                  ),
+            const SizedBox(height: 24),
+            if (!modelDownloading)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  if (askForUpdate)
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        backgroundColor: Colors.grey[200],
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () => setState(() {
+                        askForUpdate = false;
+                      }),
+                      child: const Text(
+                        'Skip',
+                        style: TextStyle(color: Colors.black87),
+                      ),
+                    ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      await updateModel();
+                      setState(() {
+                        askForUpdate = false;
+                      });
+                    },
+                    child: Text(modelDownloading ? 'Downloading...' : 'Download'),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      theme: ThemeData(
-          appBarTheme: const AppBarTheme(
-            color: Colors.black87,
-          ),
-          textButtonTheme: TextButtonThemeData(
-            style: TextButton.styleFrom(
-              backgroundColor: Colors.black87,
-            ),
-          ),
-          elevatedButtonTheme: ElevatedButtonThemeData(
-              style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.black87,
-          ))),
-      home: Scaffold(
-        appBar: AppBar(
-          title: const Text('DMS Demo'),
-        ),
-        body: Builder(builder: (context) {
-          return Center(
-            child: termsAccepted
-                ? FutureBuilder(
-                    future: Future.wait([dmsModelInfoFuture]),
-                    builder:
-                        (context, AsyncSnapshot<List<DmsModelInfo>> snapshot) {
+    if (showWelcome) {
+      return _buildWelcomeScreen();
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('DMS'),
+      ),
+      body: Center(
+        child: termsAccepted
+            ? FutureBuilder(
+                future: Future.wait([dmsModelInfoFuture]),
+                builder: (context, AsyncSnapshot<List<DmsModelInfo>> snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(
+                      child: CircularProgressIndicator(
+                        color: Colors.indigo,
+                      ),
+                    );
+                  }
+                  initFutures();
+                  return FutureBuilder(
+                    future: Future.wait([isModelAvailable, isUpdateAvailable]),
+                    builder: (context, AsyncSnapshot<List<bool>> snapshot) {
                       if (!snapshot.hasData) {
-                        return const CircularProgressIndicator();
+                        return const Center(
+                          child: CircularProgressIndicator(
+                            color: Colors.indigo,
+                          ),
+                        );
                       }
-                      initFutures();
-                      return FutureBuilder(
-                        future: Future.wait(
-                          [isModelAvailable, isUpdateAvailable],
-                        ),
-                        builder: (context, AsyncSnapshot<List<bool>> snapshot) {
-                          final isModelAvailable = snapshot.data?[0];
-                          final isUpdateAvailable = snapshot.data?[1];
-                          if (isModelAvailable != null && !isModelAvailable) {
-                            return AlertDialog(
-                              title: modelDownloading
-                                  ? const Text('Downloading Required Model...')
-                                  : const Text('Model Download is Required...'),
-                              content: modelDownloading
-                                  ? CircularPercentIndicator(
-                                      radius: 40.0,
-                                      lineWidth: 5.0,
-                                      percent: downloadProgressDouble,
-                                      center: Text(downloadProgressString),
-                                      progressColor: Colors.green,
-                                    )
-                                  : const SizedBox(),
-                              actions: modelDownloading
-                                  ? []
-                                  : [
-                                      ElevatedButton(
-                                        onPressed: () async {
-                                          await updateModel();
-                                          setState(() {
-                                            askForUpdate = false;
-                                          });
-                                        },
-                                        child: const Text('Download'),
-                                      ),
-                                    ],
-                            );
-                          } else if (isUpdateAvailable != null &&
-                              isUpdateAvailable &&
-                              askForUpdate) {
-                            return AlertDialog(
-                              title: modelDownloading
-                                  ? const Text(
-                                      'Downloading...',
-                                    )
-                                  : const Text(
-                                      'A new updated model is available!',
-                                    ),
-                              content: modelDownloading
-                                  ? CircularPercentIndicator(
-                                      radius: 40.0,
-                                      lineWidth: 5.0,
-                                      percent: downloadProgressDouble,
-                                      center: Text(downloadProgressString),
-                                      progressColor: Colors.green,
-                                    )
-                                  : const SizedBox(),
-                              actions: modelDownloading
-                                  ? []
-                                  : [
-                                      ElevatedButton(
-                                          onPressed: () => setState(() {
-                                                askForUpdate = false;
-                                              }),
-                                          child: const Text('Skip')),
-                                      ElevatedButton(
-                                          onPressed: () async {
-                                            await updateModel();
-                                            setState(() {
-                                              askForUpdate = false;
-                                            });
-                                          },
-                                          child: const Text('Download')),
-                                    ],
-                            );
-                          }
-                          return const ChooseDmsDemo();
-                        },
-                      );
+                      final isModelAvailable = snapshot.data?[0] ?? false;
+                      final isUpdateAvailable = snapshot.data?[1] ?? false;
+                      
+                      if (!isModelAvailable) {
+                        return _buildDownloadDialog(
+                          'Model Required',
+                          'To use this application, you need to download the required model files.',
+                        );
+                      } else if (isUpdateAvailable && askForUpdate) {
+                        return _buildDownloadDialog(
+                          'Update Available',
+                          'A new version of the model is available. Would you like to download it now?',
+                        );
+                      }
+                      return const ChooseDmsDemo();
                     },
-                  )
-                : AlertDialog(
-                    title: const Text('Terms and Conditions'),
-                    // To display the title it is optional
-                    content: Text.rich(TextSpan(
-                        text: 'By continuing, you agree to our ',
-                        style: const TextStyle(color: Colors.black),
-                        children: <TextSpan>[
-                          TextSpan(
-                              style: const TextStyle(color: Colors.black),
-                              children: <TextSpan>[
-                                TextSpan(
-                                    text: 'Terms of Service and Privacy Policy',
-                                    style: const TextStyle(
-                                        color: Colors.black,
-                                        decoration: TextDecoration.underline),
-                                    recognizer: TapGestureRecognizer()
-                                      ..onTap = () async {
-                                        final Uri url = Uri.parse(
-                                            'https://github.com/habbs11/DMS-Flutter-App/blob/master/terms.md');
-                                        if (!await launchUrl(url)) {
-                                          throw Exception(
-                                            'Could not launch $url',
-                                          );
-                                        }
-                                      })
-                              ])
-                        ])),
-                    // Message which will be pop up on the screen
-                    // Action widget which will provide the user to acknowledge the choice
-                    actions: [
-                      ElevatedButton(
-                          onPressed: () => setState(() {
-                                termsAccepted = true;
-                                updateAcceptedTerms();
-                              }),
-                          child: const Text('Agree')),
-                      ElevatedButton(
-                          onPressed: () async {
-                            SystemNavigator.pop();
-                          },
-                          child: const Text('Cancel')),
-                    ],
-                  ),
-          );
-        }),
+                  );
+                },
+              )
+            : _buildTermsDialog(),
       ),
     );
   }

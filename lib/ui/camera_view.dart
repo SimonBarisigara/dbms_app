@@ -1,22 +1,18 @@
+// ignore_for_file: unnecessary_import
+
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:pytorch_lite/pytorch_lite.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 import 'camera_view_singleton.dart';
 
-/// [CameraView] sends each frame for inference
 class CameraView extends StatefulWidget {
-  /// Callback to pass results after inference to [HomeView]
-  /// Constructor
-
-  final Function(List<ResultObjectDetection> recognitions,
-      Duration inferenceTime, double fps) resultsCallback;
+  final Function(List<ResultObjectDetection> recognitions, Duration inferenceTime, double fps, Map<String, int> classFreq) resultsCallback;
 
   const CameraView(this.resultsCallback, {Key? key}) : super(key: key);
 
@@ -25,7 +21,7 @@ class CameraView extends StatefulWidget {
 }
 
 class _CameraViewState extends State<CameraView> with WidgetsBindingObserver {
-  List<bool> objects = [false, false, false, false, false];
+  List<bool> objects = [false, false, false, false, false]; // [unused, Sleepy, Cigarette, Phone, Seatbelt]
   int frameCount = 0;
   double fps = 0.0;
   DateTime? lastTime;
@@ -33,154 +29,147 @@ class _CameraViewState extends State<CameraView> with WidgetsBindingObserver {
   late Stopwatch eyesStopwatch;
   bool detectedClosed = false;
 
-  /// List of available cameras
   late List<CameraDescription> cameras;
-
-  /// Controller
   CameraController? cameraController;
-
-  /// true when inference is ongoing
   bool predicting = false;
-
-  /// true when inference is ongoing
   bool predictingObjectDetection = false;
-
   ModelObjectDetection? _objectModel;
-
-  bool classification = false;
   int _camFrameRotation = 0;
   String errorMessage = "";
-
   int cameraIndex = 0;
   Map<String?, int>? classFreq;
 
   @override
   void initState() {
     super.initState();
-    initStateAsync();
     eyesStopwatch = Stopwatch();
+    initStateAsync();
   }
 
-  //load your model
   Future loadModel() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     String? pathObjectDetectionModel = prefs.getString('modelPath');
-    String? labelsPath = prefs.getString('labelsPath');
-    print(labelsPath);
+    String? labelsPath = prefs.getString('labelsPath') ?? "assets/dms_labels.txt";
+    print('Loading model from: assets/dms.torchscript, labels: $labelsPath');
     try {
       _objectModel = await PytorchLite.loadObjectDetectionModel(
         "assets/dms.torchscript",
         5,
         640,
         640,
-        labelPath: "assets/dms_labels.txt",
+        labelPath: labelsPath,
         objectDetectionModelType: ObjectDetectionModelType.yolov8,
       );
-      if (_objectModel?.labels != null) {
-        for (var label in _objectModel!.labels) {
-          classFreq?.addEntries([MapEntry(label, 0)]);
-        }
-      }
       classFreq = {for (var label in _objectModel!.labels) label: 0};
-      print('_objectModel.labels = $classFreq');
+      print('Model loaded successfully. Labels: ${classFreq!.keys.toList()}');
     } catch (e) {
-      if (e is PlatformException) {
-        print("only supported for android, Error is $e");
-      } else {
-        print("Error is $e");
-      }
+      print("Error loading model: $e");
+      setState(() {
+        errorMessage = "Failed to load model: $e";
+      });
     }
   }
 
   void initStateAsync() async {
     WidgetsBinding.instance.addObserver(this);
     await loadModel();
-
-    // Camera initialization
     try {
       initializeCamera();
     } on CameraException catch (e) {
-      switch (e.code) {
-        case 'CameraAccessDenied':
-          errorMessage = ('You have denied camera access.');
-          break;
-        case 'CameraAccessDeniedWithoutPrompt':
-          // iOS only
-          errorMessage = ('Please go to Settings app to enable camera access.');
-          break;
-        case 'CameraAccessRestricted':
-          // iOS only
-          errorMessage = ('Camera access is restricted.');
-          break;
-        case 'AudioAccessDenied':
-          errorMessage = ('You have denied audio access.');
-          break;
-        case 'AudioAccessDeniedWithoutPrompt':
-          // iOS only
-          errorMessage = ('Please go to Settings app to enable audio access.');
-          break;
-        case 'AudioAccessRestricted':
-          // iOS only
-          errorMessage = ('Audio access is restricted.');
-          break;
-        default:
-          errorMessage = (e.toString());
-          break;
-      }
-      setState(() {});
+      setState(() {
+        errorMessage = _handleCameraException(e);
+      });
     }
-    // Initially predicting = false
     setState(() {
       predicting = false;
     });
   }
 
-  /// Initializes the camera by setting [cameraController]
+  String _handleCameraException(CameraException e) {
+    switch (e.code) {
+      case 'CameraAccessDenied':
+        return 'You have denied camera access.';
+      case 'CameraAccessDeniedWithoutPrompt':
+        return 'Please go to Settings app to enable camera access.';
+      case 'CameraAccessRestricted':
+        return 'Camera access is restricted.';
+      case 'AudioAccessDenied':
+        return 'You have denied audio access.';
+      case 'AudioAccessDeniedWithoutPrompt':
+        return 'Please go to Settings app to enable audio access.';
+      case 'AudioAccessRestricted':
+        return 'Audio access is restricted.';
+      default:
+        return e.toString();
+    }
+  }
+
   void initializeCamera() async {
-    cameras = await availableCameras();
+    try {
+      cameras = await availableCameras();
+      if (cameras.isEmpty) {
+        setState(() {
+          errorMessage = "No cameras available";
+        });
+        return;
+      }
+      var desc = cameras[cameraIndex];
+      _camFrameRotation = Platform.isAndroid ? desc.sensorOrientation : 0;
+      print('Initializing camera: ${desc.name}, rotation: $_camFrameRotation');
+      cameraController = CameraController(
+        desc,
+        ResolutionPreset.low,
+        imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.yuv420 : ImageFormatGroup.bgra8888,
+        enableAudio: false,
+      );
 
-    var desc = cameras[cameraIndex];
-    _camFrameRotation = Platform.isAndroid ? desc.sensorOrientation : 0;
-    print('Camera is being initialized... $_camFrameRotation');
-    // cameras[0] for rear-camera
-    cameraController = CameraController(
-      desc,
-      ResolutionPreset.low,
-      imageFormatGroup: Platform.isAndroid
-          ? ImageFormatGroup.yuv420
-          : ImageFormatGroup.bgra8888,
-      enableAudio: false,
-    );
-
-    cameraController?.initialize().then((_) async {
-      // Stream of image passed to [onLatestImageAvailable] callback
+      await cameraController?.initialize();
       await cameraController?.startImageStream(onLatestImageAvailable);
 
-      /// previewSize is size of each image frame captured by controller
-      ///
-      /// 352x288 on iOS, 240p (320x240) on Android with ResolutionPreset.low
       Size? previewSize = cameraController?.value.previewSize;
-
-      /// previewSize is size of raw input image to the model
-      CameraViewSingleton.inputImageSize = previewSize!;
-
-      // the display width of image on screen is
-      // same as screenWidth while maintaining the aspectRatio
-      Size screenSize = MediaQuery.of(context).size;
-      CameraViewSingleton.screenSize = screenSize;
-      CameraViewSingleton.ratio = cameraController!.value.aspectRatio;
-    });
+      if (previewSize != null) {
+        CameraViewSingleton.inputImageSize = previewSize;
+        Size screenSize = MediaQuery.of(context).size;
+        CameraViewSingleton.screenSize = screenSize;
+        CameraViewSingleton.ratio = cameraController!.value.aspectRatio;
+        print('Camera initialized. Preview size: $previewSize, screen size: $screenSize');
+      } else {
+        print('Warning: Preview size is null');
+      }
+      if (mounted) setState(() {});
+    } catch (e) {
+      print('Error initializing camera: $e');
+      setState(() {
+        errorMessage = "Camera initialization failed: $e";
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     Size screenSize = MediaQuery.of(context).size;
     double screenHeight = screenSize.height;
-    print('HERE: $objects');
 
-    // Return empty container while the camera is not initialized
     if (cameraController == null || !cameraController!.value.isInitialized) {
-      return Container();
+      return Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Colors.blue.shade900, Colors.blue.shade600],
+          ),
+        ),
+        child: Center(
+          child: Text(
+            errorMessage.isEmpty ? 'Initializing camera...' : errorMessage,
+            style: GoogleFonts.poppins(
+              color: Colors.white,
+              fontSize: 16,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
     }
 
     return Stack(
@@ -193,160 +182,116 @@ class _CameraViewState extends State<CameraView> with WidgetsBindingObserver {
                 child: CameraPreview(cameraController!),
               ),
         Positioned(
-          bottom: 50,
-          right: 10,
+          bottom: 60,
+          right: 16,
           child: FloatingActionButton(
             onPressed: () {
               setState(() {
-                cameraIndex == 0 ? cameraIndex = 1 : cameraIndex = 0;
+                cameraIndex = cameraIndex == 0 ? 1 : 0;
               });
               initializeCamera();
-              if (kDebugMode) {
-                print('Camera Index = $cameraIndex');
-              }
+              print('Camera Index = $cameraIndex');
             },
             tooltip: 'Switch Camera',
             mini: true,
-            backgroundColor: Colors.black.withAlpha(90),
-            child: const Icon(Icons.cameraswitch),
+            backgroundColor: Colors.white,
+            elevation: 4,
+            child: Icon(
+              Icons.cameraswitch,
+              color: Colors.blue.shade900,
+            ),
           ),
         ),
         Positioned(
           top: screenHeight / 4,
-          left: 10,
+          left: 16,
           child: Container(
-            padding: const EdgeInsets.all(5),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20.0),
-              color: Colors.black.withAlpha(60),
+              color: Colors.white.withOpacity(0.9),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Column(
               children: [
-                // Awake
-                Column(
-                  children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: objects[1] ? Colors.red : Colors.transparent,
-                          width: 5,
-                        ),
-                      ),
-                      width: 60,
-                      height: 60,
-                      child: const Icon(
-                        Icons.bedtime,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const Text(
-                      'Sleepy',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ],
+                _buildBehaviorIndicator(
+                  icon: Icons.bedtime,
+                  label: 'Sleepy',
+                  isActive: objects[1],
                 ),
-                const SizedBox(
-                  height: 10,
+                const SizedBox(height: 12),
+                _buildBehaviorIndicator(
+                  icon: Icons.smoking_rooms_sharp,
+                  label: 'Cigarette',
+                  isActive: objects[2],
                 ),
-
-                // Cigarette
-                Column(
-                  children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: objects[2] ? Colors.red : Colors.transparent,
-                          width: 5,
-                        ),
-                      ),
-                      width: 60,
-                      height: 60,
-                      child: const Icon(
-                        Icons.smoking_rooms_sharp,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const Text(
-                      'Cigarette',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ],
+                const SizedBox(height: 12),
+                _buildBehaviorIndicator(
+                  icon: Icons.phone_android,
+                  label: 'Phone',
+                  isActive: objects[3],
                 ),
-                const SizedBox(
-                  height: 10,
-                ),
-
-                // Phone
-                Column(
-                  children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: objects[3] ? Colors.red : Colors.transparent,
-                          width: 5,
-                        ),
-                      ),
-                      width: 60,
-                      height: 60,
-                      child: const Icon(
-                        Icons.phone_android,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const Text(
-                      'Phone',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ],
-                ),
-                const SizedBox(
-                  height: 10,
-                ),
-
-                // Seatbelt
-                Column(
-                  children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: !objects[4] ? Colors.red : Colors.transparent,
-                          width: 5,
-                        ),
-                      ),
-                      width: 60,
-                      height: 60,
-                      child: const Icon(
-                        Icons.safety_check,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const Text(
-                      'Seatbelt',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ],
-                ),
-                const SizedBox(
-                  height: 10,
+                const SizedBox(height: 12),
+                _buildBehaviorIndicator(
+                  icon: Icons.safety_check,
+                  label: 'Seatbelt',
+                  isActive: objects[4],
+                  reverseColor: true,
                 ),
               ],
             ),
           ),
-        )
+        ),
       ],
     );
   }
 
+  Widget _buildBehaviorIndicator({
+    required IconData icon,
+    required String label,
+    required bool isActive,
+    bool reverseColor = false,
+  }) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: (reverseColor ? !isActive : isActive) ? Colors.red : Colors.transparent,
+          width: 2,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 24,
+            color: Colors.blue.shade900,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: Colors.blue.shade900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   int labelFreq(String label, List<ResultObjectDetection> objects) {
-    int freq = 0;
-    for (var object in objects) {
-      if (object.className == label) freq++;
-    }
-    return freq;
+    return objects.where((object) => object.className == label).length;
   }
 
   Future<void> runObjectDetection(CameraImage cameraImage) async {
@@ -357,139 +302,115 @@ class _CameraViewState extends State<CameraView> with WidgetsBindingObserver {
     }
     lastTime = DateTime.now();
     frameCount++;
-    setState(() {});
 
-    if (predictingObjectDetection) {
-      return;
-    }
-    if (!mounted) {
-      return;
-    }
+    if (predictingObjectDetection || !mounted) return;
 
     setState(() {
       predictingObjectDetection = true;
     });
+
     if (_objectModel != null) {
-      // Start the stopwatch
       Stopwatch stopwatch = Stopwatch()..start();
 
-      List<ResultObjectDetection> objDetect =
-          await _objectModel!.getCameraImagePrediction(
+      List<ResultObjectDetection> objDetect = await _objectModel!.getCameraImagePrediction(
         cameraImage,
-        // cameraIndex == 0 ? 90 : 270,
-        minimumScore: 0.3,
-        iOUThreshold: 0.3,
+        minimumScore: 0.2, // Lowered to capture more detections
+        iOUThreshold: 0.2, // Lowered to reduce filtering
       );
 
-      List<ResultObjectDetection> objDetectTemp = objDetect;
-      objects[1] = false;
-      objects[2] = false;
-      objects[3] = false;
-      objects[4] = false;
-      for (var detectedObject in objDetectTemp) {
+      print('Frame $frameCount: Detected ${objDetect.length} objects');
+      List<bool> newObjects = [false, false, false, false, false];
+      for (var detectedObject in objDetect) {
+        print('Class: ${detectedObject.className}, Score: ${detectedObject.score}, '
+            'Box: [${detectedObject.rect.left}, ${detectedObject.rect.top}, '
+            '${detectedObject.rect.width}, ${detectedObject.rect.height}]');
 
-        if (detectedObject.className == 'Closed Eye' &&
-            labelFreq('Closed Eye', objDetectTemp) == 2 &&
-            detectedClosed == false) {
-          classFreq?[detectedObject.className] =
-              classFreq![detectedObject.className]! + 1;
-          detectedClosed = true;
-          print('Detected 2 closed eyes!');
-          eyesStopwatch = Stopwatch()..start();
+        if (detectedObject.className == 'Closed Eye' && labelFreq('Closed Eye', objDetect) >= 2) {
+          if (!detectedClosed) {
+            detectedClosed = true;
+            eyesStopwatch = Stopwatch()..start();
+            print('Detected 2 closed eyes, starting stopwatch');
+          }
         } else if (detectedObject.className == 'Open Eye') {
           detectedClosed = false;
+          eyesStopwatch.reset();
+          await player.stop();
+          print('Detected open eye, resetting sleepy detection');
         }
 
         if (detectedObject.className == 'Cigarette') {
-            objects[2] = true;
+          newObjects[2] = true;
         }
-
         if (detectedObject.className == 'Phone') {
-            objects[3] = true;
+          newObjects[3] = true;
         }
-
         if (detectedObject.className == 'Seatbelt') {
-            objects[4] = true;
+          newObjects[4] = true;
         }
 
-        print(
-            '${detectedObject.className} = ${classFreq?[detectedObject.className]}');
-      }
-      print(
-          '++++++++++++++++ ${eyesStopwatch.elapsed.inSeconds} +++++++++++++');
-      print('detectedClosed = $detectedClosed');
-
-      if (eyesStopwatch.elapsed.inMilliseconds >= 100) {
-        if (detectedClosed == false) {
-          eyesStopwatch.reset();
-          await player.stop();
-        } else {
-          objects[1] = true;
-          await player.play(AssetSource('sound_effects/beep.mp3'));
+        final className = detectedObject.className;
+        if (className != null) {
+          classFreq?[className] = (classFreq![className] ?? 0) + 1;
         }
       }
 
-      // Stop the stopwatch
+      if (detectedClosed && eyesStopwatch.elapsed.inMilliseconds >= 1000) { // Extended to 1s for reliability
+        newObjects[1] = true;
+        await player.play(AssetSource('sound_effects/beep.mp3'));
+        print('Sleepy detected, playing alert');
+      } else if (!detectedClosed) {
+        eyesStopwatch.reset();
+        await player.stop();
+      }
+
+      setState(() {
+        objects = newObjects;
+        print('Updated objects: $objects');
+      });
+
       stopwatch.stop();
-      // print("data outputted $objDetect");
-      widget.resultsCallback(objDetect, stopwatch.elapsed, fps);
-    }
-    if (!mounted) {
-      return;
+      widget.resultsCallback(objDetect, stopwatch.elapsed, fps, Map<String, int>.from(classFreq ?? {}));
+    } else {
+      print('Error: _objectModel is null');
     }
 
-    setState(() {
-      predictingObjectDetection = false;
-    });
+    if (mounted) {
+      setState(() {
+        predictingObjectDetection = false;
+      });
+    }
   }
-
-  /// Callback to receive each frame [CameraImage] perform inference on it
   onLatestImageAvailable(CameraImage cameraImage) async {
-    // Make sure we are still mounted, the background thread can return a response after we navigate away from this
-    // screen but before bg thread is killed
-    if (!mounted) {
-      return;
-    }
-
-    // log("will start prediction");
-    // log("Converted camera image");
-
-    // runClassification(cameraImage);
-    runObjectDetection(cameraImage);
-
-    // log("done prediction camera image");
-    // Make sure we are still mounted, the background thread can return a response after we navigate away from this
-    // screen but before bg thread is killed
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
+    print('Received camera frame: ${cameraImage.width}x${cameraImage.height}, '
+        'format: ${cameraImage.format.group}');
+    await runObjectDetection(cameraImage);
   }
 
-  // @override
-  // void didChangeAppLifecycleState(AppLifecycleState state) async {
-  //   if (!mounted) {
-  //     return;
-  //   }
-  //   switch (state) {
-  //     case AppLifecycleState.paused:
-  //       cameraController?.stopImageStream();
-  //       break;
-  //     case AppLifecycleState.resumed:
-  //       if (cameraController != null) {
-  //         if (!cameraController!.value.isStreamingImages) {
-  //           await cameraController?.startImageStream(onLatestImageAvailable);
-  //         }
-  //       }
-  //       break;
-  //     default:
-  //   }
-  // }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) async {
+    if (!mounted) return;
+    switch (state) {
+      case AppLifecycleState.paused:
+        await cameraController?.stopImageStream();
+        print('Camera stream paused');
+        break;
+      case AppLifecycleState.resumed:
+        if (cameraController != null && !cameraController!.value.isStreamingImages) {
+          await cameraController?.startImageStream(onLatestImageAvailable);
+          print('Camera stream resumed');
+        }
+        break;
+      default:
+    }
+  }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     cameraController?.dispose();
     player.dispose();
+    print('CameraView disposed');
     super.dispose();
   }
 }
