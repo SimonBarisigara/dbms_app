@@ -49,8 +49,8 @@ class _RunModelByCameraDemoState extends State<RunModelByCameraDemo> {
           child: Stack(
             fit: StackFit.expand,
             children: <Widget>[
-              CameraView((results, inferenceTime, fps, classFreq) {
-                resultsCallback(results, inferenceTime, fps, classFreq);
+              CameraView((results, inferenceTime, fps) {
+                resultsCallback(results, inferenceTime, fps, {});
               }),
               boundingBoxes2(results),
               Positioned(
@@ -102,8 +102,8 @@ class _RunModelByCameraDemoState extends State<RunModelByCameraDemo> {
       ),
     );
 
-  }  Widget boundingBoxes2(List<ResultObjectDetection>? results) {
-    if (results == null) {
+
+  }  Widget boundingBoxes2(List<ResultObjectDetection>? results) {    if (results == null) {
       return Container();
     }
     return Stack(
@@ -118,7 +118,7 @@ class _RunModelByCameraDemoState extends State<RunModelByCameraDemo> {
     }
     setState(() {
       this.results = results;
-      this.objectDetectionInferenceTime = inferenceTime;
+      objectDetectionInferenceTime = inferenceTime;
       this.fps = fps;
       this.classFreq = classFreq;
       for (var element in results) {
