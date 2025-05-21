@@ -1,3 +1,4 @@
 {
-    "cmake.sourceDirectory": "C:/Users/user/Desktop/bse25/dms_demo/linux"
+    "cmake.sourceDirectory": "C:/Users/user/Desktop/bse25/dms_demo/linux",
+    "postman.settings.dotenv-detection-notification-visibility": false
 }
